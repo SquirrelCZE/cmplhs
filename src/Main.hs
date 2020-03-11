@@ -13,7 +13,7 @@ import           Modes                  (ErrorMode (..), InfoMode (..),
                                          StdMode (..))
 import           State                  (AppState (..), Mode (..),
                                          SharedState (..), Target (..),
-                                         Viewports, packMode, renderMode, modeOnExec, modeName,
+                                         Viewports, packMode, renderMode, modeOnExec, modeName, modeScroll,
                                          stepMode, _modes, _shared, _targets, _cmd)
 
 data Tick = Tick
@@ -69,9 +69,18 @@ keyBinds :: [KeyBind]
 keyBinds = [(mkBind (Vt.KChar 'q') [] "quit" Br.halt),
     (mkBind (Vt.KChar 't') [] "change target" (Br.continue .changeTarget)),
     (mkBind (Vt.KChar 'r') [] "execute target" exec_target),
-    (mkBind (Vt.KChar 'm') [] "change mode" (Br.continue . changeMode))]
+    (mkBind (Vt.KChar 'm') [] "change mode" (Br.continue . changeMode)),
+    (mkBind (Vt.KDown) [] "scroll down 5 lines" (scroll_view 5)),
+    (mkBind (Vt.KDown) [Vt.MCtrl] "scroll down 50 lines" (scroll_view 50)),
+    (mkBind (Vt.KUp) [] "scroll up 5 lines" (scroll_view (-5))),
+    (mkBind (Vt.KUp) [Vt.MCtrl] "scroll up 50 lines" (scroll_view (-50)))
+    ]
     where
         exec_target as = liftIO (runTarget as) >>= Br.continue
+        scroll_view :: Int -> AppState -> Br.EventM Viewports (Br.Next AppState)
+        scroll_view c as =  (mode $ (_modes as) !! (_active_mode as))
+            where 
+                mode (MkMode m) = modeScroll m c as
 
 handleEvent :: AppState -> Br.BrickEvent Viewports Tick -> Br.EventM Viewports (Br.Next AppState)
 handleEvent as (Br.AppEvent Tick) = liftIO (step as) >>= Br.continue

@@ -5,7 +5,7 @@ module Modes where
 import           Brick    as Br
 import           Keys     (KeyBind (..), getKeyHelp)
 import           SideProc (SideProcess (..), readLines)
-import           State    (AppMode, SharedState, Viewports (..), renderMode, formatTarget, modeOnExec, modeName,
+import           State    (AppMode, AppState, SharedState, Viewports (..), renderMode, formatTarget, modeOnExec, modeName, modeScroll,
                            stepMode, _compile_process, _targets, _active_target)
 import           Util     (hLimitMax)
 
@@ -27,6 +27,9 @@ instance AppMode ErrorMode where
     modeOnExec _ = ErrorMode []
 
     modeName _ = "STDERR"
+    
+    modeScroll :: ErrorMode -> Int -> AppState -> Br.EventM Viewports (Br.Next AppState)
+    modeScroll _ c as = (Br.vScrollBy (Br.viewportScroll ErrViewport) c) >> Br.continue as
 
 data StdMode = StdMode {
     _std_lines :: [String]
@@ -46,6 +49,9 @@ instance AppMode StdMode where
     modeOnExec _ = StdMode []
 
     modeName _ = "STDOUT"
+    
+    modeScroll :: StdMode -> Int -> AppState -> Br.EventM Viewports (Br.Next AppState)
+    modeScroll _ c as = (Br.vScrollBy (Br.viewportScroll StdViewport) c) >> Br.continue as
 
 data InfoMode = InfoMode {
     _keys :: [KeyBind]
@@ -65,3 +71,6 @@ instance AppMode InfoMode where
     stepMode st im = return (st, im)
 
     modeName _ = "INFO"
+
+    modeScroll :: InfoMode -> Int -> AppState -> Br.EventM Viewports (Br.Next AppState)
+    modeScroll _ _ as = Br.continue as

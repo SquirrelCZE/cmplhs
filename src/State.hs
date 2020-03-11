@@ -28,6 +28,7 @@ class AppMode a where
     modeOnExec :: a -> a
     modeOnExec a = a
     modeName :: a -> String
+    modeScroll :: a -> Int -> AppState -> Br.EventM Viewports (Br.Next AppState)
 
 data Mode = forall a . AppMode a => MkMode a
 
