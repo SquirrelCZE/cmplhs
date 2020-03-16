@@ -2,21 +2,21 @@
 
 module State where
 
-import Data.Typeable (typeOf)
-import           Brick    as Br
-import           SideProc (SideProcess)
-
+import           Brick         as Br
+import           Data.Typeable (typeOf)
+import           SideProc      (SideProcess (..))
+import           System.IO     (hIsEOF)
 
 data Target = Target {
         _cmd :: String
     }
 
 formatTarget :: Int -> Target -> String
-formatTarget i t = show i ++ " - " ++ (_cmd t)
+formatTarget i t = show i ++ " - " ++ _cmd t
 
 data SharedState = SharedState {
     _targets         :: [Target],
-    _active_target :: Int,
+    _active_target   :: Int,
     _compile_process :: Maybe SideProcess
 }
 

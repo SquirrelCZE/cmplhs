@@ -1,53 +1,48 @@
 module SideProc where
 
-import Control.Concurrent (forkIO, threadDelay, killThread)
-import          Control.Concurrent.MVar (newEmptyMVar, tryTakeMVar, putMVar)
-import           System.IO      (Handle, hGetLine, hIsEOF, hWaitForInput)
-import           System.Process (ProcessHandle, runInteractiveCommand)
+import           Control.Concurrent      (forkIO, killThread, threadDelay, ThreadId)
+import           Control.Concurrent.MVar (newEmptyMVar, putMVar, tryTakeMVar)
+import Control.Concurrent.STM.TChan (TChan, newTChanIO, tryReadTChan, writeTChan)
+import Control.Concurrent.STM (STM, atomically)
+import           System.IO               (Handle, hGetChar, hGetLine, hIsEOF,
+                                          hReady, hWaitForInput)
+import           System.Process          (ProcessHandle, runInteractiveCommand)
 
 data SideProcess = SideProcess {
         _stdout :: Handle,
+        _stdout_chan :: TChan String,
+        _stdout_tid :: ThreadId,
         _stderr :: Handle,
+        _stderr_chan :: TChan String,
+        _stderr_tid :: ThreadId,
         _proc   :: ProcessHandle
         }
 
-readLines :: Handle -> IO [String]
-readLines hndl = do
-    m_var <- newEmptyMVar
-    tid <- forkIO $ do
-        is_eof <- hIsEOF hndl
-        if is_eof
-        then return ()
-        else do
-            line <- hGetLine hndl
-            putMVar m_var line
-
-    threadDelay 20
-    killThread tid
-
-    mb_line <- tryTakeMVar m_var
-    case mb_line of
+readLines :: TChan String -> IO [String]
+readLines chan = do
+    mb_val <- atomically $ tryReadTChan chan
+    case mb_val of
         Just line -> do
-            sub_lines <- readLines hndl
+            sub_lines <- readLines chan
             return (line:sub_lines)
         Nothing -> return []
 
 
-readLines2 :: Handle -> IO [String]
-readLines2 hndl = do
-    is_eof <- hIsEOF hndl
-    if is_eof
-    then return []
-    else do
-        has_input <- hWaitForInput hndl 20
-        if not has_input
-        then return []
-        else do
-            line <- hGetLine hndl
-            sub <- readLines2 hndl
-            return ( line : sub )
-
 runSideProcess :: String -> IO SideProcess
 runSideProcess cmd = do
     (_, stdout, stderr, handle ) <- runInteractiveCommand cmd
-    return SideProcess {_stdout = stdout, _stderr = stderr, _proc = handle}
+    stdout_chan <- newTChanIO
+    stdout_tid <- forkIO $ read_line stdout stdout_chan 
+    stderr_chan <- newTChanIO
+    stderr_tid <- forkIO $ read_line stderr stderr_chan
+    return SideProcess {_stdout = stdout, _stdout_chan = stdout_chan, _stdout_tid = stdout_tid, _stderr = stderr, _stderr_chan = stderr_chan, _stderr_tid = stderr_tid, _proc = handle}
+    where
+        read_line :: Handle -> TChan String -> IO()
+        read_line hndl chan = do
+            is_eof <- hIsEOF hndl
+            if is_eof
+            then return ()
+            else do
+                line <- hGetLine hndl
+                atomically $ writeTChan chan line
+                read_line hndl chan
