@@ -5,6 +5,12 @@ import           Brick                      as Br
 import           Control.Monad.Trans.Reader (withReaderT)
 import           Lens.Micro                 ((%~), (^.))
 
+activeAttr :: Br.AttrName
+activeAttr = Br.attrName "activeAttr"
+
+errorAttr :: Br.AttrName
+errorAttr = Br.attrName "errorAttr"
+
 vLimitMax :: Br.Widget n -> Br.Widget n
 vLimitMax p = Br.Widget (Br.hSize p) Br.Fixed $ do
   ctx <- getContext

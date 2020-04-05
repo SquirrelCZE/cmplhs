@@ -11,20 +11,19 @@ import           Data.Maybe             (isJust)
 import qualified Graphics.Vty           as Vt
 import           Keys                   (KeyBind, getKeyHelp, handleKeyEvent,
                                          mkBind)
-import           Modes                  (ErrorMode (..), InfoMode (..),
-                                         StdMode (..))
+import           Modes                  (ErrorMode (..), GccJsonMode (..),
+                                         InfoMode (..), StdMode (..))
+import Targets (Target(..),loadTargets, _cmd)
 import           SideProc               (runSideProcess)
 import           State                  (AppState (..), Mode (..),
-                                         SharedState (..), Target (..),
+                                         SharedState (..),
                                          Viewports, modeName, modeOnExec,
                                          modeScroll, packMode, renderMode,
-                                         stepMode, _cmd, _modes, _shared,
-                                         _targets)
+                                         stepMode, stepSharedState,
+                                         _modes, _shared, _targets)
+import Util (errorAttr, activeAttr)
 
 data Tick = Tick
-
-activeAttr :: Br.AttrName
-activeAttr = Br.attrName "activeAttr"
 
 drawTopLine :: Mode -> SharedState -> Br.Widget Viewports
 drawTopLine (MkMode m) st = Br.hBox [pad_to 10 ( modeName m)]
@@ -42,7 +41,8 @@ drawUI (AppState modes active_mode shared) = [Br.vBox [ drawTopLine mode shared,
 
 step :: AppState -> IO AppState
 step as = do
-        (newst, newmods) <- proc_module (_shared as) (_modes as)
+        newshared <- stepSharedState (_shared as)
+        (newst, newmods) <- proc_module newshared (_modes as)
         return AppState {_modes = newmods, _active_mode = _active_mode as, _shared = newst}
     where
         proc_module :: SharedState -> [Mode] -> IO (SharedState, [Mode])
@@ -60,7 +60,7 @@ changeMode c (AppState modes _ shared) = AppState modes new_mode shared
 changeTarget :: AppState -> AppState
 changeTarget (AppState modes active_mode shared) = AppState modes active_mode new_shared
     where
-        new_shared = SharedState (_targets shared) new_target (_compile_process shared)
+        new_shared = SharedState (_targets shared) new_target (_compile_process shared) (_err_lines shared) (_std_lines shared)
         new_target = (_active_target shared + 1) `mod` length ( _targets shared)
 
 runTarget :: AppState -> IO AppState
@@ -72,7 +72,9 @@ runTarget (AppState modes active_mode shared) = do
             _shared = SharedState {
                 _targets = _targets shared,
                 _active_target = _active_target shared,
-                _compile_process = Just sp
+                _compile_process = Just sp,
+                _err_lines = [],
+                _std_lines = []
             }
         }
 
@@ -88,7 +90,7 @@ keyBinds = [mkBind (Vt.KChar 'q') [] "quit" Br.halt,
     mkBind Vt.KDown [Vt.MCtrl] "scroll down 50 lines" (scroll_view 50),
     mkBind Vt.KUp [] "scroll up 5 lines" (scroll_view (-5)),
     mkBind Vt.KUp [Vt.MCtrl] "scroll up 50 lines" (scroll_view (-50))
-    ] ++ num_binds ['1', '2', '3']
+    ] ++ num_binds ['1', '2', '3', '4']
     where
         num_binds [] = []
         num_binds (x:xs) = mkBind (Vt.KChar x) [] ("switch to mode " ++ [x]) ( Br.continue . changeMode (digitToInt x)) : num_binds xs
@@ -105,21 +107,22 @@ handleEvent as (Br.VtyEvent (Vt.EvKey key mods)) = handleKeyEvent as key mods ke
 handleEvent as _ = Br.continue as
 
 initMainState :: IO AppState
-initMainState = return AppState {
+initMainState = do
+    targets <- loadTargets
+    return AppState {
         _modes = [
-           packMode $ ErrorMode [] ,
-           packMode $  StdMode [],
+           packMode ErrorMode  ,
+           packMode  StdMode ,
+            packMode GccJsonMode,
             packMode $ InfoMode keyBinds
             ],
         _active_mode = 0,
         _shared = SharedState {
-            _targets = [
-                Target {_cmd =  "catkin_make --source ./repos --cmake-args -D CMAKE_CXX_FLAGS=\"-fdiagnostics-color=always -ftemplate-backtrace-limit=0\" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON"},
-                Target {_cmd = "catkin_make run_tests --source ./repos --cmake-args -D CMAKE_CXX_FLAGS=\"-fdiagnostics-color=always -ftemplate-backtrace-limit=0\" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON"},
-                Target {_cmd = "catkin_make run_tests --source ./repos --cmake-args -D CMAKE_CXX_FLAGS=\"-fdiagnostics-color=always -ftemplate-backtrace-limit=0 -fdiagnostics-format=json\" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON"}
-            ],
+            _targets = targets,
             _active_target = 0,
-            _compile_process = Nothing
+            _compile_process = Nothing,
+                _err_lines = [],
+                _std_lines = []
         }
         }
 
@@ -131,7 +134,8 @@ app = Br.App
     appHandleEvent = handleEvent,
     appStartEvent = return,
     appAttrMap = const (Br.attrMap Vt.defAttr [
-            (activeAttr, Vt.black `Br.on` Vt.blue)
+            (activeAttr, Vt.black `Br.on` Vt.blue),
+            (errorAttr, Br.fg Vt.red `Vt.withStyle` Vt.bold)
         ])
     }
 
