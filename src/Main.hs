@@ -1,5 +1,6 @@
 module Main where
 
+import Lens.Micro (over, ix, (&), (%~))
 import           Brick                  as Br
 import           Brick.BChan            (newBChan, writeBChan)
 import           Control.Concurrent     (forkIO, threadDelay)
@@ -86,10 +87,8 @@ keyBinds :: [KeyBind]
 keyBinds = [mkBind (Vt.KChar 'q') [] "quit" Br.halt,
     mkBind (Vt.KChar 't') [] "change target" (Br.continue .changeTarget),
     mkBind (Vt.KChar 'r') [] "execute target" exec_target,
-    mkBind Vt.KDown [] "scroll down 5 lines" (scroll_view 5),
-    mkBind Vt.KDown [Vt.MCtrl] "scroll down 50 lines" (scroll_view 50),
-    mkBind Vt.KUp [] "scroll up 5 lines" (scroll_view (-5)),
-    mkBind Vt.KUp [Vt.MCtrl] "scroll up 50 lines" (scroll_view (-50))
+    mkBind Vt.KDown [] "scroll down" (scroll_view 1),
+    mkBind Vt.KUp [] "scroll up lines" (scroll_view (-1))
     ] ++ num_binds ['1', '2', '3', '4']
     where
         num_binds [] = []
@@ -97,9 +96,14 @@ keyBinds = [mkBind (Vt.KChar 'q') [] "quit" Br.halt,
 
         exec_target as = liftIO (runTarget as) >>= Br.continue
         scroll_view :: Int -> AppState -> Br.EventM Viewports (Br.Next AppState)
-        scroll_view c as =  mode $ _modes as !! _active_mode as
+        scroll_view c (AppState mods activei shrd) = Br.continue $ AppState {
+               _modes = (mods & (ix activei) %~ scroll),
+               _active_mode = activei,
+               _shared = shrd
+            }
             where
-                mode (MkMode m) = modeScroll m c as
+                scroll :: Mode -> Mode 
+                scroll (MkMode m) = MkMode $ modeScroll m c
 
 handleEvent :: AppState -> Br.BrickEvent Viewports Tick -> Br.EventM Viewports (Br.Next AppState)
 handleEvent as (Br.AppEvent Tick) = liftIO (step as) >>= Br.continue
@@ -111,9 +115,9 @@ initMainState = do
     targets <- loadTargets
     return AppState {
         _modes = [
-           packMode ErrorMode  ,
-           packMode  StdMode ,
-            packMode GccJsonMode,
+           packMode $ ErrorMode  0,
+           packMode $ StdMode 0,
+            packMode $ GccJsonMode 0,
             packMode $ InfoMode keyBinds
             ],
         _active_mode = 0,
@@ -144,7 +148,7 @@ main = do
   chan <- newBChan 10
   forkIO $ forever $ do
     writeBChan chan Tick
-    threadDelay 100000 -- decides how fast your app ticks
+    threadDelay 300000 -- decides how fast your app ticks
   g <- initMainState
   let buildVty = Vt.mkVty Vt.defaultConfig
   initialVty <- buildVty

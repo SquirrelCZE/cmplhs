@@ -2,6 +2,8 @@
 
 module Modes where
 
+import Data.List (intercalate)
+import Lens.Micro (over, ix, (&), (%~))
 import           Brick         as Br
 import           Data.Maybe    (catMaybes)
 import           GccJsonParser (ErrorCodeMark (..), ErrorFixIt (..),
@@ -19,28 +21,34 @@ import           State         (AppMode, AppState, SharedState, Viewports (..),
 import           Util          (hLimitMax, errorAttr)
 
 data ErrorMode = ErrorMode {
+    _errr_i :: Int
 }
 
 instance AppMode ErrorMode where
     renderMode :: SharedState -> ErrorMode -> Br.Widget Viewports
-    renderMode st _ = Br.viewport ErrViewport Br.Vertical $ Br.vBox (hLimitMax . strWrap <$> reverse (_err_lines st))
+    renderMode st (ErrorMode err_i) = Br.viewport ErrViewport Br.Vertical $ Br.vBox $ wrapped & (ix err_i) %~ Br.visible
+        where
+            wrapped = hLimitMax . strWrap <$> reverse (_err_lines st)
 
     modeName _ = "STDERR"
 
-    modeScroll :: ErrorMode -> Int -> AppState -> Br.EventM Viewports (Br.Next AppState)
-    modeScroll _ c as = Br.vScrollBy (Br.viewportScroll ErrViewport) c >> Br.continue as
+    modeScroll :: ErrorMode -> Int -> ErrorMode
+    modeScroll (ErrorMode i) c = ErrorMode (i + c)
 
 data StdMode = StdMode {
+    _std_i :: Int
 }
 
 instance AppMode StdMode where
     renderMode :: SharedState -> StdMode -> Br.Widget Viewports
-    renderMode st _ = Br.viewport StdViewport Br.Vertical $ Br.vBox (hLimitMax . strWrap <$> reverse (_std_lines st))
+    renderMode st (StdMode std_i) = Br.viewport StdViewport Br.Vertical $ Br.vBox $ wrapped & (ix std_i) %~ Br.visible
+        where
+            wrapped = hLimitMax . strWrap <$> reverse (_std_lines st)
 
     modeName _ = "STDOUT"
 
-    modeScroll :: StdMode -> Int -> AppState -> Br.EventM Viewports (Br.Next AppState)
-    modeScroll _ c as = Br.vScrollBy (Br.viewportScroll StdViewport) c >> Br.continue as
+    modeScroll :: StdMode -> Int -> StdMode
+    modeScroll (StdMode i) c = StdMode (i + c)
 
 newtype InfoMode = InfoMode {
     _keys :: [KeyBind]
@@ -58,15 +66,19 @@ instance AppMode InfoMode where
 
     modeName _ = "INFO"
 
-    modeScroll :: InfoMode -> Int -> AppState -> Br.EventM Viewports (Br.Next AppState)
-    modeScroll _ _ = Br.continue
+    modeScroll :: InfoMode -> Int -> InfoMode 
+    modeScroll m _ = m
 
-data GccJsonMode = GccJsonMode {}
+data GccJsonMode = GccJsonMode {
+    _position :: Int
+}
 
 instance AppMode GccJsonMode where
     renderMode :: SharedState -> GccJsonMode -> Br.Widget Viewports
-    renderMode st _ = Br.vBox (gcc_error_to_widget <$> extractGccErrors (reverse $ _err_lines st))
+    renderMode st (GccJsonMode pos) = Br.viewport GccJsonViewport Br.Vertical $ Br.vBox $ widgets & (ix pos) %~ Br.visible
         where
+            widgets = gcc_error_to_widget <$> extractGccErrors (reverse $ _err_lines st)
+
             gcc_error_to_widget :: GccError -> Br.Widget Viewports
             gcc_error_to_widget (FailedGccError e line) = 
                 Br.vBox [strWrap $ "Failed to parse gcc json error due to: " ++ e, strWrap line]
@@ -90,8 +102,17 @@ instance AppMode GccJsonMode where
             loc_to_w :: ErrorLocation -> Br.Widget Viewports
             loc_to_w (ErrorLocation caret mb_finish mb_start mb_label) =
                 Br.vBox $ 
-                code_mark_to_w caret : 
-                catMaybes [ code_mark_to_w <$> mb_finish, code_mark_to_w <$> mb_start, strWrap <$> mb_label ]
+                marks ( caret : catMaybes [mb_start, mb_finish] ) : 
+                catMaybes [  strWrap <$> mb_label ]
+                where
+                    marks :: [ErrorCodeMark] -> Br.Widget Viewports
+                    marks locs 
+                        | all (\x -> (_file x) == (_file $ head locs)) locs = merge_stringify locs 
+                        | otherwise =  Br.vBox $ code_mark_to_w <$> locs
+
+                    merge_stringify :: [ErrorCodeMark] -> Br.Widget Viewports
+                    merge_stringify locs =  strWrap $ (_file $ head locs) ++ ":" ++  (intercalate "," $ (\x -> (show $ _line x) ++ ":" ++ (show $ _column x)) <$> locs)
+                    
 
             code_mark_to_w :: ErrorCodeMark -> Br.Widget Viewports
             code_mark_to_w (ErrorCodeMark col file line) = strWrap $ file ++ ":" ++ show line ++ ":" ++ show col
@@ -107,5 +128,5 @@ instance AppMode GccJsonMode where
 
     modeName _ = "GCC_JSON"
 
-    modeScroll :: GccJsonMode -> Int -> AppState -> Br.EventM Viewports (Br.Next AppState)
-    modeScroll _ _  = Br.continue
+    modeScroll :: GccJsonMode -> Int -> GccJsonMode
+    modeScroll (GccJsonMode i) c = GccJsonMode ( i + c )

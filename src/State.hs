@@ -24,7 +24,7 @@ stepSharedState st = case _compile_process st of
         new_std_lines <- readLines $ _stdout_chan sp
         return SharedState { _targets = _targets st,  _active_target = _active_target st, _compile_process = Just sp, _err_lines = reverse new_err_lines ++ _err_lines st, _std_lines = reverse new_std_lines ++ _std_lines st }
 
-data Viewports = ErrViewport | StdViewport deriving (Eq, Ord, Show)
+data Viewports = ErrViewport | StdViewport | GccJsonViewport deriving (Eq, Ord, Show)
 
 class AppMode a where
     renderMode :: SharedState -> a -> Br.Widget Viewports
@@ -33,7 +33,7 @@ class AppMode a where
     modeOnExec :: a -> a
     modeOnExec a = a
     modeName :: a -> String
-    modeScroll :: a -> Int -> AppState -> Br.EventM Viewports (Br.Next AppState)
+    modeScroll :: a -> Int -> a
 
 data Mode = forall a . AppMode a => MkMode a
 
